@@ -3,46 +3,80 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Controller Dashboard</title>
+  <title>Switch Controller</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.5.2/firebase-app.js";
-    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.5.2/firebase-database.js";
+  // Local simulation state for instant feedback
+  const localState = {
+    light: false,
+    fan: false,
+    socket: false
+  };
 
-    const firebaseConfig = {
-      databaseURL: "https://virtualiotcontrol-default-rtdb.firebaseio.com/"
-    };
+  const API_URL = "https://iot-kohl-rho.vercel.app/devices";
 
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
-    const devicesRef = ref(db, "devices");
+  // Fetch current device states from backend
+  async function fetchStates() {
+    try {
+      const res = await fetch(API_URL);
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
 
-    // Update Firebase immediately
-    function updateDevice(device, state) {
-      set(ref(db, `devices/${device}`), state);
-    }
-
-    // Real-time listener for instant updates
-    onValue(devicesRef, (snapshot) => {
-      const data = snapshot.val() || {};
-      ["light", "fan", "socket"].forEach((dev) => {
-        const toggle = document.getElementById(dev);
-        if (toggle.checked !== data[dev]) {
-          toggle.checked = data[dev];
+      ["light","fan","socket"].forEach(dev => {
+        if (localState[dev] !== data[dev]) {
+          setDeviceState(dev, data[dev]);
+          document.getElementById(dev).checked = data[dev];
         }
-        // Update visual style
-        toggle.parentElement.classList.toggle("bg-green-500", data[dev]);
-        toggle.parentElement.classList.toggle("bg-gray-300", !data[dev]);
       });
-    });
+    } catch (err) {
+      console.error("Error fetching states:", err);
+    }
+  }
 
-    window.toggleDevice = (device) => {
-      const state = document.getElementById(device).checked;
-      updateDevice(device, state);
-    };
+  // Update backend when a device state changes
+  async function updateBackend(device, state) {
+    try {
+      const body = {};
+      body[device] = state;
+
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) throw new Error("Failed to update backend");
+      const data = await res.json();
+      console.log("Updated backend:", data);
+    } catch (err) {
+      console.error("Error updating backend:", err);
+    }
+  }
+
+  // Instant update function (for UI + simulation)
+  function setDeviceState(device, state) {
+    localState[device] = state;
+    const toggle = document.getElementById(device);
+    toggle.parentElement.classList.toggle("bg-green-500", state);
+    toggle.parentElement.classList.toggle("bg-gray-300", !state);
+
+    // Optional: simulate LED in Wokwi
+    if (window.simulateLED) window.simulateLED(device, state);
+  }
+
+  // Called when toggle clicked
+  window.toggleDevice = (device) => {
+    const state = document.getElementById(device).checked;
+    setDeviceState(device, state); // update UI immediately
+    updateBackend(device, state);  // update backend
+  };
+
+  // Poll backend every 2 seconds to keep ESP32 + web UI synced
+  setInterval(fetchStates, 2000);
+  fetchStates(); // initial fetch
   </script>
+
+
   <style>
-    /* Custom toggle style */
     .toggle {
       width: 60px;
       height: 34px;
@@ -59,7 +93,7 @@
       cursor: pointer;
       top: 0; left: 0; right: 0; bottom: 0;
       background-color: #ccc;
-      transition: 0.4s;
+      transition: 0.2s;
       border-radius: 34px;
     }
     .slider:before {
@@ -68,11 +102,11 @@
       height: 26px; width: 26px;
       left: 4px; bottom: 4px;
       background-color: white;
-      transition: 0.4s;
+      transition: 0.2s;
       border-radius: 50%;
     }
     input:checked + .slider {
-      background-color: #34d399; /* Tailwind green-400 */
+      background-color: #34d399;
     }
     input:checked + .slider:before {
       transform: translateX(26px);
@@ -82,10 +116,10 @@
 
 <body class="bg-gray-100 flex items-center justify-center min-h-screen">
   <div class="bg-white shadow-xl rounded-3xl p-8 w-96 text-center">
-    <h2 class="text-2xl font-bold mb-6">Switch Controllers</h2>
+    <h2 class="text-2xl font-bold mb-6">Switch Controller</h2>
 
     <div class="space-y-6">
-      <div class="flex justify-between items-center p-3 rounded-lg bg-gray-300 transition duration-300">
+      <div class="flex justify-between items-center p-3 rounded-lg bg-gray-300 transition duration-200">
         <span class="text-lg font-semibold">💡 Light</span>
         <label class="toggle">
           <input id="light" type="checkbox" onchange="toggleDevice('light')" />
@@ -93,7 +127,7 @@
         </label>
       </div>
 
-      <div class="flex justify-between items-center p-3 rounded-lg bg-gray-300 transition duration-300">
+      <div class="flex justify-between items-center p-3 rounded-lg bg-gray-300 transition duration-200">
         <span class="text-lg font-semibold">🌀 Fan</span>
         <label class="toggle">
           <input id="fan" type="checkbox" onchange="toggleDevice('fan')" />
@@ -101,7 +135,7 @@
         </label>
       </div>
 
-      <div class="flex justify-between items-center p-3 rounded-lg bg-gray-300 transition duration-300">
+      <div class="flex justify-between items-center p-3 rounded-lg bg-gray-300 transition duration-200">
         <span class="text-lg font-semibold">🔌 Socket</span>
         <label class="toggle">
           <input id="socket" type="checkbox" onchange="toggleDevice('socket')" />
@@ -110,5 +144,17 @@
       </div>
     </div>
   </div>
+
+  <script>
+    // Simulate LED change in Wokwi immediately
+    window.simulateLED = (device, state) => {
+      const pinMap = { light: 23, fan: 22, socket: 21 };
+      const ledId = {23:'led1',22:'led2',21:'led3'}[pinMap[device]];
+      if (ledId && window.Wokwi) {
+        const led = Wokwi.leds[ledId];
+        if (led) led.write(state ? 1 : 0);
+      }
+    };
+  </script>
 </body>
 </html>
